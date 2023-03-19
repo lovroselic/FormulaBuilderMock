@@ -80,12 +80,12 @@ class ParameterEntry {
     updateNextState(state, par) {
         state.parameter = par;
         state.position = this.expects;
-        console.table(state);
+        //console.table(state);
     }
     resetState(state) {
         state.position = "parameter";
         state.parameter = null;
-        console.table(state);
+        //console.table(state);
     }
 }
 
@@ -109,11 +109,11 @@ class OperatorEntry {
     updateNextState(state) {
         state.position = this.expects;
         state.operands = this.operands;
-        console.table(state);
+        //console.table(state);
     }
     resetState(state) {
         state.position = "operator";
-        console.table(state);
+        //console.table(state);
     }
 }
 
@@ -127,18 +127,18 @@ class OperandEntry {
     }
     resetState(state) {
         state.position = "operand";
-        console.table(state);
+        //console.table(state);
     }
     updateNextState(state) {
         state.position = this.expects;
-        console.table(state);
+        //console.table(state);
     }
 }
 
 const DataBase = [];
 
 const APP = {
-    version: 0.3,
+    version: 0.4,
     parameter_selection: null,
     option_labels: null,
     STACK: null,
@@ -235,7 +235,6 @@ const APP = {
         $(`#parameter_options${this.state.group}`).append(html);
     },
     drawCommitCurrent() {
-        console.log("drawing commit");
         $("#commit").remove();
         let html = `<div id="commit" class="my-auto"><button class="btn btn-success" type="button" onclick="APP.parseCommit()"> NEXT <i class="bi bi-box-arrow-right"></i></button></div>`;
         $("#fb").append(html);
@@ -249,7 +248,6 @@ const APP = {
     },
     undo() {
         const last = this.STACK.last();
-        console.log("UNDO!", last);
         last.resetState(this.state);
         this.STACK.pop();
         this.displayFormula();
@@ -258,10 +256,8 @@ const APP = {
         $(`#value${this.state.group}`).prop('disabled', false);
         //---
         $("#undo").remove();
-        console.warn("trying to remove:", `#${last.expects}${this.state.group}`);
         $(`#${last.expects}${this.state.group}`).remove();
         if (this.STACK.length > 0) {
-            console.warn("inserting undo");
             this.insertUndo();
         }
         $("#end").remove();
@@ -269,7 +265,6 @@ const APP = {
         if (this.state.finished) {
             this.state.finished = false;
             this.drawCommitCurrent();
-            console.table(this.state);
         }
     },
     parseCommit() {
@@ -284,7 +279,6 @@ const APP = {
     commitOperand() {
         console.log("commiting operand");
         const dataType = this.state.parameter.type;
-        console.log("dataType", dataType);
         let operand;
         switch (dataType) {
             case "date":
@@ -298,10 +292,15 @@ const APP = {
                 operand = new OperandEntry(val_from_list, val_from_list);
                 break;
             case "number":
+                let value_numbers = [parseFloat($(`#value${this.state.group}`).val())];
+                if (this.state.operands === 2) {
+                    value_numbers.push(parseFloat($(`#value${this.state.group}_2`).val()));
+                }
+                let label_num = value_numbers.join(" AND ");
+                operand = new OperandEntry(label_num, value_numbers);
                 break;
             default: throw new Error("Wrong datatype");
         }
-        console.log("selected operand", operand);
         operand.updateNextState(this.state);
         $(`#operand_options${this.state.group}`).prop('disabled', 'disabled');
         $(`#value${this.state.group}`).prop('disabled', 'disabled');
@@ -310,7 +309,6 @@ const APP = {
     commitOperator() {
         const selected_operator = this.operator_list[parseInt($(`#operator_options${this.state.group}`).find(":selected").val(), 10)];
         const operator = new OperatorEntry(selected_operator);
-        console.log("selected_operator", operator);
         operator.updateNextState(this.state);
         $(`#operator_options${this.state.group}`).prop('disabled', 'disabled');
         this.next(operator);
@@ -322,14 +320,10 @@ const APP = {
         this.next(selected_par);
     },
     next(obj) {
-        console.log("STACK", this.STACK);
         this.STACK.push(obj);
         this.displayFormula();
-        //set next
         this.drawUndo();
-        console.log("...expects", obj.expects);
         this[`select_${obj.expects}`]();
-
         if (!this.state.finished) this.drawCommitCurrent();
     },
     select_finish() {
@@ -360,7 +354,6 @@ const APP = {
     },
     select_operand() {
         if (this.state.operands === 0) return this.endSequence();
-        console.log("select operand, state", this.state);
         const html = `
             <div id="operand${this.state.group}" class="mx-3 my-auto">
             </div>
@@ -368,7 +361,6 @@ const APP = {
         $("#fb").append(html);
 
         const dataType = this.state.parameter.type;
-        console.log("dataType", dataType);
         let html_for_value;
 
         switch (dataType) {
@@ -400,6 +392,12 @@ const APP = {
                 $(`#operand_options${this.state.group}`).append(html3);
                 break;
             case "number":
+                let value_html3 = `<input id = "value${this.state.group}" type="number" require value="0"/>`;
+                $(`#operand${this.state.group}`).append(value_html3);
+                if (this.state.operands === 2) {
+                    let value_html4 = ` AND <input id = "value${this.state.group}_2" type="number" require value="0"/>`;
+                    $(`#operand${this.state.group}`).append(value_html4);
+                }
                 break;
             default: throw new Error("Wrong datatype");
         }
@@ -419,8 +417,6 @@ const APP = {
         alert("this is not yet implemented!");
     },
     endSequence() {
-        console.log("sequence could end ...");
-        console.log("removing commit");
         $("#commit").remove();
         this.drawEnd();
         this.state.finished = true;
