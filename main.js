@@ -4,16 +4,23 @@
 
 /**
  * simplifications:
- *      fields and parameters are fixed in order to simplify display:  making dynamically responise design is OOS for this POC
+ *      fields and parameters are fixed, in order to simplify display:  making dynamically responise design is OOS for this POC
+ * 
+ * https://stackoverflow.com/questions/563406/how-to-add-days-to-date
+ * https://codingbeautydev.com/blog/javascript-add-days-to-date/
  */
 
 function randomDate(start, end) {
     return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
 }
-
+function getSignChar(number) {
+    if (number >= 0) return "+";
+    return "";
+}
 
 const BatchStatuses = ["Registered", "Pending", "Blocked"];
 const FractionStatuses = ["Open", "Closed", "Expired"];
+const Categorical = ["A", "B", "C"];
 
 class Product {
     constructor(name) {
@@ -41,6 +48,7 @@ class Batch {
 
         this.parameters = {
             assay: { data: RNDF(80, 100), dataType: 'number', PG: 'ASSAY' },
+            category: { data: Categorical.chooseRandom(), dataType: "list", source: Categorical, PG: "DUMMY" }
         };
     }
     addFraction(fraction) {
@@ -60,16 +68,132 @@ class Fraction {
     }
 }
 
+class ParameterEntry {
+    constructor(label, table, type, source = null) {
+        this.label = label;
+        this.table = table;
+        this.type = type;
+        this.source = source;
+        this.expects = 'operator';
+        this.state_position = 'parameter';
+    }
+    updateNextState(state, par) {
+        state.parameter = par;
+        state.position = this.expects;
+        console.table(state);
+    }
+    resetState(state) {
+        state.position = "parameter";
+        state.parameter = null;
+        console.table(state);
+    }
+}
+
+class OperatorEntry {
+    constructor(label) {
+        this.label = label;
+        this.state_position = 'operator';
+        this.expects = 'operand';
+        switch (label) {
+            case "BETWEEN":
+                this.operands = 2;
+                break;
+            case "IS NOT NULL":
+                this.operands = 0;
+                break;
+            default:
+                this.operands = 1;
+                break;
+        }
+    }
+    updateNextState(state) {
+        state.position = this.expects;
+        state.operands = this.operands;
+        console.table(state);
+    }
+    resetState(state) {
+        state.position = "operator";
+        console.table(state);
+    }
+}
+
+class OperandEntry {
+    constructor(label, value, offset_unit = null) {
+        this.label = label;
+        this.state_position = 'operand';
+        this.expects = 'finish';
+        this.value = value;
+        this.offset_unit = offset_unit;
+    }
+    resetState(state) {
+        state.position = "operand";
+        console.table(state);
+    }
+    updateNextState(state) {
+        state.position = this.expects;
+        console.table(state);
+    }
+}
+
 const DataBase = [];
 
 const APP = {
-    version: 0.2,
+    version: 0.3,
+    parameter_selection: null,
+    option_labels: null,
+    STACK: null,
+    state: null,
+    operator_list: ["==", "!=", "<", "<=", ">", ">=", "BETWEEN", "IS NOT NULL"],
+    date_offsets: ["Day", "Month", "Year"],
+    undo_html: `<div id="undo" class="my-auto"><button class="btn btn-danger" type="button" onclick="APP.undo()"> BACK <i class="bi bi-arrow-counterclockwise"></i></button></div>`,
     init() {
-        //console.clear();
         console.log(`%cFB_Mock v${APP.version}`, 'color: green');
         $("#v").html(`v${APP.version} by LS`);
+        this.STACK = [];
+        this.setInitialState();
         this.generateData();
+        this.generateParameterList();
         this.displayTable();
+    },
+    setInitialState() {
+        this.state = {
+            position: 'parameter',
+            parameter: null,
+            finished: false,
+            group: 1,
+            operands: null,
+        };
+        console.table(this.state);
+    },
+    generateParameterList() {
+        const parameter_selection = [];
+        const option_labels = [];
+        const batch = new Batch(null);
+        const fraction = new Fraction(batch);
+        const batch_fields = Object.keys(batch.fields);
+        const fraction_fields = Object.keys(fraction.fields);
+        const batch_parameters = Object.keys(batch.parameters);
+
+        for (let b of batch_fields) {
+            const label = `Batch.${b}`;
+            const entry = new ParameterEntry(label, "Batch", batch.fields[b].dataType, batch.fields[b].source);
+            parameter_selection.push(entry);
+            option_labels.push(label);
+        }
+        for (let f of fraction_fields) {
+            const label = `Fraction.${f}`;
+            const entry = new ParameterEntry(label, "Fraction", fraction.fields[f].dataType, fraction.fields[f].source);
+            parameter_selection.push(entry);
+            option_labels.push(label);
+        }
+        for (let b of batch_parameters) {
+            const label = `${batch.parameters[b].PG}.${b}`;
+            const entry = new ParameterEntry(label, "Batch", batch.parameters[b].dataType, batch.parameters[b].source);
+            parameter_selection.push(entry);
+            option_labels.push(label);
+        }
+        this.parameter_selection = parameter_selection;
+        this.option_labels = option_labels;
     },
     generateData(products = 3, batches = 3, fractions = 3) {
         for (let p = 0; p < products; p++) {
@@ -84,12 +208,226 @@ const APP = {
             }
             DataBase.push(product);
         }
-        console.table(DataBase);
     },
     displayTable() {
         const [header, data] = this.readDB();
+        this.initBuilder();
         this.displayHeader(header);
         this.displayData(data);
+    },
+    initBuilder() {
+        this.setoptions();
+        this.drawCommitCurrent();
+    },
+    setoptions() {
+        const html0 = `
+            <div id="parameter${this.state.group}" class="mx-3 my-auto">
+                <label for="parameter_options${this.state.group}">Parameter/Field:</label>
+                <select name="parameter_options${this.state.group}" id="parameter_options${this.state.group}"></select>
+            </div>
+        `;
+        $("#fb").append(html0);
+
+        let html = "";
+        for (let [index, option] of this.option_labels.entries()) {
+            html += `<option value="${index}">${option}</option>`;
+        }
+        $(`#parameter_options${this.state.group}`).append(html);
+    },
+    drawCommitCurrent() {
+        console.log("drawing commit");
+        $("#commit").remove();
+        let html = `<div id="commit" class="my-auto"><button class="btn btn-success" type="button" onclick="APP.parseCommit()"> NEXT <i class="bi bi-box-arrow-right"></i></button></div>`;
+        $("#fb").append(html);
+    },
+    drawUndo() {
+        $("#undo").remove();
+        $("#fb").append(this.undo_html);
+    },
+    insertUndo() {
+        $(this.undo_html).insertBefore(`#${this.state.position}${this.state.group}`);
+    },
+    undo() {
+        const last = this.STACK.last();
+        console.log("UNDO!", last);
+        last.resetState(this.state);
+        this.STACK.pop();
+        this.displayFormula();
+        //---------
+        $(`#${last.state_position}_options${this.state.group}`).prop('disabled', false);
+        $(`#value${this.state.group}`).prop('disabled', false);
+        //---
+        $("#undo").remove();
+        console.warn("trying to remove:", `#${last.expects}${this.state.group}`);
+        $(`#${last.expects}${this.state.group}`).remove();
+        if (this.STACK.length > 0) {
+            console.warn("inserting undo");
+            this.insertUndo();
+        }
+        $("#end").remove();
+        $("#or").remove();
+        if (this.state.finished) {
+            this.state.finished = false;
+            this.drawCommitCurrent();
+            console.table(this.state);
+        }
+    },
+    parseCommit() {
+        console.log("parsing commit ...", this.state.position);
+        switch (this.state.position) {
+            case "parameter": return this.commitParameter();
+            case "operator": return this.commitOperator();
+            case "operand": return this.commitOperand();
+            default: throw new Error(`state position pointer error`);
+        }
+    },
+    commitOperand() {
+        console.log("commiting operand");
+        const dataType = this.state.parameter.type;
+        console.log("dataType", dataType);
+        let operand;
+        switch (dataType) {
+            case "date":
+                let value = parseInt($(`#value${this.state.group}`).val(), 10);
+                let dateOffset = this.date_offsets[parseInt($(`#operand_options${this.state.group}`).find(":selected").val(), 10)];
+                let label = `TODAY ${getSignChar(value)}${value} ${dateOffset}`;
+                operand = new OperandEntry(label, value, dateOffset);
+                break;
+            case "list":
+                let val_from_list = this.state.parameter.source[parseInt($(`#operand_options${this.state.group}`).find(":selected").val(), 10)];
+                operand = new OperandEntry(val_from_list, val_from_list);
+                break;
+            case "number":
+                break;
+            default: throw new Error("Wrong datatype");
+        }
+        console.log("selected operand", operand);
+        operand.updateNextState(this.state);
+        $(`#operand_options${this.state.group}`).prop('disabled', 'disabled');
+        $(`#value${this.state.group}`).prop('disabled', 'disabled');
+        this.next(operand);
+    },
+    commitOperator() {
+        const selected_operator = this.operator_list[parseInt($(`#operator_options${this.state.group}`).find(":selected").val(), 10)];
+        const operator = new OperatorEntry(selected_operator);
+        console.log("selected_operator", operator);
+        operator.updateNextState(this.state);
+        $(`#operator_options${this.state.group}`).prop('disabled', 'disabled');
+        this.next(operator);
+    },
+    commitParameter() {
+        const selected_par = this.parameter_selection[parseInt($(`#parameter_options${this.state.group}`).find(":selected").val(), 10)];
+        selected_par.updateNextState(this.state, selected_par);
+        $(`#parameter_options${this.state.group}`).prop('disabled', 'disabled');
+        this.next(selected_par);
+    },
+    next(obj) {
+        console.log("STACK", this.STACK);
+        this.STACK.push(obj);
+        this.displayFormula();
+        //set next
+        this.drawUndo();
+        console.log("...expects", obj.expects);
+        this[`select_${obj.expects}`]();
+
+        if (!this.state.finished) this.drawCommitCurrent();
+    },
+    select_finish() {
+        this.endSequence();
+    },
+    select_operator() {
+        console.log("select operator");
+        const html = `
+            <div id="operator${this.state.group}" class="mx-3 my-auto">
+                <label for="operator_options${this.state.group}">Operator:</label>
+                <select name="operator_options${this.state.group}" id="operator_options${this.state.group}"></select>
+            </div>
+        `;
+        $("#fb").append(html);
+
+        let html2 = "";
+        let disabled;
+        let dType = this.state.parameter.type;
+        for (let [index, option] of this.operator_list.entries()) {
+            //TODO: this is hardcoded, move to INI!
+            if ((['list', 'date'].includes(dType) && ["BETWEEN"].includes(option) ||
+                (['list'].includes(dType) && ["<", "<=", ">", ">=", "BETWEEN"].includes(option)))) {
+                disabled = "disabled";
+            } else disabled = "";
+            html2 += `<option value="${index}" ${disabled}>${option}</option>`;
+        }
+        $(`#operator_options${this.state.group}`).append(html2);
+    },
+    select_operand() {
+        if (this.state.operands === 0) return this.endSequence();
+        console.log("select operand, state", this.state);
+        const html = `
+            <div id="operand${this.state.group}" class="mx-3 my-auto">
+            </div>
+        `;
+        $("#fb").append(html);
+
+        const dataType = this.state.parameter.type;
+        console.log("dataType", dataType);
+        let html_for_value;
+
+        switch (dataType) {
+            case "date":
+                html_for_value = `
+                    <label for = "operand_options${this.state.group}">Date offset:</label>
+                    <select name="operand_options${this.state.group}" id="operand_options${this.state.group}"></select>
+                `;
+                $(`#operand${this.state.group}`).append(html_for_value);
+                let html2 = "";
+                for (let [index, option] of this.date_offsets.entries()) {
+                    html2 += `<option value="${index}">${option}</option>`;
+                }
+                $(`#operand_options${this.state.group}`).append(html2);
+
+                let value_html2 = `<input id = "value${this.state.group}" type="number" value="0"/>`;
+                $(`#operand${this.state.group}`).append(value_html2);
+                break;
+
+            case "list":
+                html_for_value = `
+                    <select name="operand_options${this.state.group}" id="operand_options${this.state.group}"></select>
+                `;
+                $(`#operand${this.state.group}`).append(html_for_value);
+                let html3 = "";
+                for (let [index, option] of this.state.parameter.source.entries()) {
+                    html3 += `<option value="${index}">${option}</option>`;
+                }
+                $(`#operand_options${this.state.group}`).append(html3);
+                break;
+            case "number":
+                break;
+            default: throw new Error("Wrong datatype");
+        }
+    },
+    drawEnd() {
+        let html_end = `
+        <div id="end" class="my-auto"><button class="btn btn-primary" type="button" onclick="APP.end_formula()"> ADD FORMULA <i class="bi bi-box-arrow-down"></i></button></div>
+        <div id="or" class="my-auto"><button class="btn btn-warning" type="button" onclick="APP.or()"> OR <i class="bi bi-node-plus-fill"></i></button></div>
+        `;
+        $("#fb").append(html_end);
+    },
+    end_formula() {
+        console.log("ending formula", this.STACK);
+        alert("almost done...");
+    },
+    or() {
+        alert("this is not yet implemented!");
+    },
+    endSequence() {
+        console.log("sequence could end ...");
+        console.log("removing commit");
+        $("#commit").remove();
+        this.drawEnd();
+        this.state.finished = true;
+    },
+    displayFormula() {
+        const labels = this.STACK.map(entry => entry.label);
+        $("#display").html(labels.join(" "));
     },
     displayData(data) {
         for (let row of data) {
@@ -100,7 +438,6 @@ const APP = {
             html += "</tr>";
             $("#table > tbody").append(html);
         }
-
     },
     displayHeader(header) {
         let html = "";
@@ -108,12 +445,11 @@ const APP = {
             html += `<th scope="col">${col}</th>`;
         }
         $("#table > thead > tr").html(html);
-
     },
     readDB() {
         const header = ['Product.name',
             'Batch.number', 'Batch.status', 'Batch.production_date', 'Batch.expiration_date',
-            'ASSAY.Assay',
+            'ASSAY.Assay', 'DUMMY.Category',
             'Fraction.id', 'Fraction.status'];
         const data = [];
         for (let p of DataBase) {
@@ -124,19 +460,16 @@ const APP = {
                         b.id, b.fields.status.data,
                         b.fields.production_date.data.toLocaleString().split(',')[0],
                         b.fields.expiration_date.data.toLocaleString().split(',')[0],
-                        b.parameters.assay.data,
+                        b.parameters.assay.data, b.parameters.category.data,
                         f.id, f.fields.status.data
                     ];
                     data.push(row);
                 }
             }
-
         }
-
         console.assert(header.length === data[0].length, "Something went wrong ...");
         return [header, data];
     }
-
 };
 
 APP.init();
