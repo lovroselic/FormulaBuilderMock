@@ -6,7 +6,7 @@
 console.clear();
 
 var LIB = {
-  VERSION: "3.10",
+  VERSION: "3.11",
   CSS: "color: #EFE",
   log: function () {
     console.log(`%cPrototype LIB ${LIB.VERSION} loaded`, LIB.CSS);
@@ -23,6 +23,7 @@ changelog:
 3.05: RNDF, updates for RUN, Set prototypes, substr -> substring updates;
 3.06: 3d vectors
 3.10: optimized, binarySearch
+3.11: date prototypes
 */
 
 (function () {
@@ -100,6 +101,17 @@ changelog:
   window.colorStringToVector = colorStringToVector;
   window.binarySearch = binarySearch;
 })();
+
+/** Date prototypes */
+Date.prototype.addDays = function (days) {
+  this.setDate(this.getDate() + days);
+};
+Date.prototype.addMonths = function (months) {
+  this.setMonth(this.getMonth() + months);
+};
+Date.prototype.addYears = function (years) {
+  this.setFullYear(this.getFullYear() + years);
+};
 
 // Converts from degrees to radians.
 Math.radians = function (degrees) {

@@ -5,9 +5,8 @@
 /**
  * simplifications:
  *      fields and parameters are fixed, in order to simplify display:  making dynamically responise design is OOS for this POC
+ *      OR chains ignored at the moment
  * 
- * https://stackoverflow.com/questions/563406/how-to-add-days-to-date
- * https://codingbeautydev.com/blog/javascript-add-days-to-date/
  */
 
 function randomDate(start, end) {
@@ -16,6 +15,11 @@ function randomDate(start, end) {
 function getSignChar(number) {
     if (number >= 0) return "+";
     return "";
+}
+function locateStringToDate(str) {
+    let d = str.split("/").reverse();
+    d[1]--;
+    return new Date(...d);
 }
 
 const BatchStatuses = ["Registered", "Pending", "Blocked"];
@@ -80,12 +84,10 @@ class ParameterEntry {
     updateNextState(state, par) {
         state.parameter = par;
         state.position = this.expects;
-        //console.table(state);
     }
     resetState(state) {
         state.position = "parameter";
         state.parameter = null;
-        //console.table(state);
     }
 }
 
@@ -109,11 +111,9 @@ class OperatorEntry {
     updateNextState(state) {
         state.position = this.expects;
         state.operands = this.operands;
-        //console.table(state);
     }
     resetState(state) {
         state.position = "operator";
-        //console.table(state);
     }
 }
 
@@ -127,18 +127,21 @@ class OperandEntry {
     }
     resetState(state) {
         state.position = "operand";
-        //console.table(state);
     }
     updateNextState(state) {
         state.position = this.expects;
-        //console.table(state);
     }
 }
 
 const DataBase = [];
 
 const APP = {
-    version: 0.5,
+    INI: {
+        products: 3,
+        batches: 3,
+        fractions: 3
+    },
+    version: 0.6,
     parameter_selection: null,
     option_labels: null,
     STACK: null,
@@ -146,7 +149,7 @@ const APP = {
     header: null,
     data: null,
     operator_list: ["==", "!=", "<", "<=", ">", ">=", "BETWEEN", "IS NOT NULL"],
-    date_offsets: ["Day", "Month", "Year"],
+    date_offsets: ["Days", "Months", "Years"],
     undo_html: `<div id="undo" class="my-auto"><button class="btn btn-danger" type="button" onclick="APP.undo()"> BACK <i class="bi bi-arrow-counterclockwise"></i></button></div>`,
     denyDate: ["BETWEEN"],
     denyList: ["<", "<=", ">", ">=", "BETWEEN"],
@@ -166,8 +169,9 @@ const APP = {
             finished: false,
             group: 1,
             operands: null,
+            parse: false,
+            columnIndex: null,
         };
-        console.table(this.state);
     },
     generateParameterList() {
         const parameter_selection = [];
@@ -199,7 +203,7 @@ const APP = {
         this.parameter_selection = parameter_selection;
         this.option_labels = option_labels;
     },
-    generateData(products = 3, batches = 3, fractions = 3) {
+    generateData(products = this.INI.products, batches = this.INI.batches, fractions = this.INI.fractions) {
         for (let p = 0; p < products; p++) {
             const product = new Product(`PRODUCT${p + 1}`);
             for (let b = 0; b < batches; b++) {
@@ -257,10 +261,10 @@ const APP = {
         last.resetState(this.state);
         this.STACK.pop();
         this.displayFormula();
-        //---------
+       
         $(`#${last.state_position}_options${this.state.group}`).prop('disabled', false);
         $(`#value${this.state.group}`).prop('disabled', false);
-        //---
+  
         $("#undo").remove();
         $(`#${last.expects}${this.state.group}`).remove();
         if (this.STACK.length > 0) {
@@ -274,7 +278,6 @@ const APP = {
         }
     },
     parseCommit() {
-        console.log("parsing commit ...", this.state.position);
         switch (this.state.position) {
             case "parameter": return this.commitParameter();
             case "operator": return this.commitOperator();
@@ -283,7 +286,6 @@ const APP = {
         }
     },
     commitOperand() {
-        console.log("commiting operand");
         const dataType = this.state.parameter.type;
         let operand;
         switch (dataType) {
@@ -336,7 +338,6 @@ const APP = {
         this.endSequence();
     },
     select_operator() {
-        console.log("select operator");
         const html = `
             <div id="operator${this.state.group}" class="mx-3 my-auto">
                 <label for="operator_options${this.state.group}">Operator:</label>
@@ -421,8 +422,10 @@ const APP = {
         $("#or").remove();
         $("#undo").remove();
         $("#end").remove();
-
-        alert("almost done...");
+        this.state.parse = true;
+        this.state.columnIndex = this.header.indexOf(this.STACK[0].label);
+        console.table(this.state);
+        this.displayData();
     },
     or() {
         alert("this is not yet implemented!");
@@ -440,8 +443,17 @@ const APP = {
         $("#table_body").html("");
         for (let row of data) {
             let html = "<tr>";
-            for (let column of row) {
-                html += `<td>${column}</td>`;
+            for (let [i, column] of row.entries()) {
+                if (i === this.state.columnIndex) {
+                    let CL = `class="table-danger"`;
+                    let complies = this.parseFormula(column);
+                    if (complies) {
+                        CL = `class="table-success"`;
+                    }
+                    html += `<td ${CL}>${column}</td>`;
+                } else {
+                    html += `<td>${column}</td>`;
+                }
             }
             html += "</tr>";
             $("#table > tbody").append(html);
@@ -457,7 +469,7 @@ const APP = {
     readDB() {
         const header = ['Product.name',
             'Batch.number', 'Batch.status', 'Batch.production_date', 'Batch.expiration_date',
-            'ASSAY.Assay', 'DUMMY.Category',
+            'ASSAY.assay', 'DUMMY.category',
             'Fraction.id', 'Fraction.status'];
         const data = [];
         for (let p of DataBase) {
@@ -466,8 +478,8 @@ const APP = {
                     const row = [
                         p.name,
                         b.id, b.fields.status.data,
-                        b.fields.production_date.data.toLocaleString().split(',')[0],
-                        b.fields.expiration_date.data.toLocaleString().split(',')[0],
+                        b.fields.production_date.data.toLocaleDateString(),
+                        b.fields.expiration_date.data.toLocaleDateString(),
                         b.parameters.assay.data, b.parameters.category.data,
                         f.id, f.fields.status.data
                     ];
@@ -477,6 +489,51 @@ const APP = {
         }
         console.assert(header.length === data[0].length, "Something went wrong ...");
         return [header, data];
+    },
+    parseFormula(value) {
+        const value_data = this.STACK[2] || null;
+
+        switch (this.state.parameter.type) {
+            case "date":
+                let date = locateStringToDate(value);
+                let date_offset = new Date();
+                if (this.state.operands > 0) {
+                    date_offset[`add${value_data.offset_unit}`](value_data.value);
+                    date.setHours(0, 0, 0, 0);
+                    date_offset.setHours(0, 0, 0, 0);
+                }
+                switch (this.STACK[1].label) {
+                    case "==": return date.getTime() === date_offset.getTime();
+                    case "!=": return date.getTime() !== date_offset.getTime();
+                    case "IS NOT NULL": return date != null;
+                    case "<": return date < date_offset;
+                    case ">": return date > date_offset;
+                    case "<=": return date < date_offset || date.getTime() === date_offset.getTime();
+                    case ">=": return date > date_offset || date.getTime() === date_offset.getTime();
+                }
+                break;
+            case "list":
+                switch (this.STACK[1].label) {
+                    case "IS NOT NULL": return value != null;
+                    case "==": return value == value_data.label;
+                    case "!=": return value != value_data.label;
+                }
+                break;
+            case "number":
+                if (this.state.operands === 2) {
+                    return value >= this.STACK[2].value[0] && value <= this.STACK[2].value[1];
+                }
+                switch (this.STACK[1].label) {
+                    case "==": return value === this.STACK[2].value[0];
+                    case "!=": return value !== this.STACK[2].value[0];
+                    case "<": return value < this.STACK[2].value[0];
+                    case ">": return value > this.STACK[2].value[0];
+                    case "<=": return value <= this.STACK[2].value[0];
+                    case ">=": return value >= this.STACK[2].value[0];
+                }
+                break;
+            default: throw new Error('wrong data type');
+        }
     }
 };
 
