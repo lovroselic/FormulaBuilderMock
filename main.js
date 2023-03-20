@@ -138,14 +138,18 @@ class OperandEntry {
 const DataBase = [];
 
 const APP = {
-    version: 0.4,
+    version: 0.5,
     parameter_selection: null,
     option_labels: null,
     STACK: null,
     state: null,
+    header: null,
+    data: null,
     operator_list: ["==", "!=", "<", "<=", ">", ">=", "BETWEEN", "IS NOT NULL"],
     date_offsets: ["Day", "Month", "Year"],
     undo_html: `<div id="undo" class="my-auto"><button class="btn btn-danger" type="button" onclick="APP.undo()"> BACK <i class="bi bi-arrow-counterclockwise"></i></button></div>`,
+    denyDate: ["BETWEEN"],
+    denyList: ["<", "<=", ">", ">=", "BETWEEN"],
     init() {
         console.log(`%cFB_Mock v${APP.version}`, 'color: green');
         $("#v").html(`v${APP.version} by LS`);
@@ -211,6 +215,8 @@ const APP = {
     },
     displayTable() {
         const [header, data] = this.readDB();
+        this.header = header;
+        this.data = data;
         this.initBuilder();
         this.displayHeader(header);
         this.displayData(data);
@@ -343,9 +349,10 @@ const APP = {
         let disabled;
         let dType = this.state.parameter.type;
         for (let [index, option] of this.operator_list.entries()) {
-            //TODO: this is hardcoded, move to INI!
-            if ((['list', 'date'].includes(dType) && ["BETWEEN"].includes(option) ||
-                (['list'].includes(dType) && ["<", "<=", ">", ">=", "BETWEEN"].includes(option)))) {
+            if (
+                (['date'].includes(dType) && this.denyDate.includes(option)) ||
+                (['list'].includes(dType) && this.denyList.includes(option))
+            ) {
                 disabled = "disabled";
             } else disabled = "";
             html2 += `<option value="${index}" ${disabled}>${option}</option>`;
@@ -411,6 +418,10 @@ const APP = {
     },
     end_formula() {
         console.log("ending formula", this.STACK);
+        $("#or").remove();
+        $("#undo").remove();
+        $("#end").remove();
+
         alert("almost done...");
     },
     or() {
@@ -425,7 +436,8 @@ const APP = {
         const labels = this.STACK.map(entry => entry.label);
         $("#display").html(labels.join(" "));
     },
-    displayData(data) {
+    displayData(data = this.data) {
+        $("#table_body").html("");
         for (let row of data) {
             let html = "<tr>";
             for (let column of row) {
