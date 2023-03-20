@@ -6,7 +6,6 @@
  * simplifications:
  *      fields and parameters are fixed, in order to simplify display:  making dynamically responise design is OOS for this POC
  *      OR chains ignored at the moment
- * 
  */
 
 function randomDate(start, end) {
@@ -17,9 +16,8 @@ function getSignChar(number) {
     return "";
 }
 function locateStringToDate(str) {
-    let d = str.split("/").reverse();
-    d[1]--;
-    return new Date(...d);
+    const [year, month, day] = str.split("/").reverse();
+    return new Date(year, month - 1, day);
 }
 
 const BatchStatuses = ["Registered", "Pending", "Blocked"];
@@ -141,7 +139,7 @@ const APP = {
         batches: 3,
         fractions: 3
     },
-    version: 0.6,
+    version: "0.7 (POC)",
     parameter_selection: null,
     option_labels: null,
     STACK: null,
@@ -261,10 +259,10 @@ const APP = {
         last.resetState(this.state);
         this.STACK.pop();
         this.displayFormula();
-       
+
         $(`#${last.state_position}_options${this.state.group}`).prop('disabled', false);
         $(`#value${this.state.group}`).prop('disabled', false);
-  
+
         $("#undo").remove();
         $(`#${last.expects}${this.state.group}`).remove();
         if (this.STACK.length > 0) {
@@ -362,10 +360,7 @@ const APP = {
     },
     select_operand() {
         if (this.state.operands === 0) return this.endSequence();
-        const html = `
-            <div id="operand${this.state.group}" class="mx-3 my-auto">
-            </div>
-        `;
+        const html = `<div id="operand${this.state.group}" class="mx-3 my-auto"></div>`;
         $("#fb").append(html);
 
         const dataType = this.state.parameter.type;
@@ -389,9 +384,7 @@ const APP = {
                 break;
 
             case "list":
-                html_for_value = `
-                    <select name="operand_options${this.state.group}" id="operand_options${this.state.group}"></select>
-                `;
+                html_for_value = `<select name="operand_options${this.state.group}" id="operand_options${this.state.group}"></select>`;
                 $(`#operand${this.state.group}`).append(html_for_value);
                 let html3 = "";
                 for (let [index, option] of this.state.parameter.source.entries()) {
@@ -399,6 +392,7 @@ const APP = {
                 }
                 $(`#operand_options${this.state.group}`).append(html3);
                 break;
+
             case "number":
                 let value_html3 = `<input id = "value${this.state.group}" type="number" require value="0"/>`;
                 $(`#operand${this.state.group}`).append(value_html3);
@@ -412,8 +406,8 @@ const APP = {
     },
     drawEnd() {
         let html_end = `
-        <div id="end" class="my-auto"><button class="btn btn-primary" type="button" onclick="APP.end_formula()"> ADD FORMULA <i class="bi bi-box-arrow-down"></i></button></div>
-        <div id="or" class="my-auto"><button class="btn btn-warning" type="button" onclick="APP.or()"> OR <i class="bi bi-node-plus-fill"></i></button></div>
+            <div id="end" class="my-auto"><button class="btn btn-primary" type="button" onclick="APP.end_formula()"> ADD FORMULA <i class="bi bi-box-arrow-down"></i></button></div>
+            <div id="or" class="my-auto"><button class="btn btn-warning" type="button" onclick="APP.or()"> OR <i class="bi bi-node-plus-fill"></i></button></div>
         `;
         $("#fb").append(html_end);
     },
@@ -492,7 +486,8 @@ const APP = {
     },
     parseFormula(value) {
         const value_data = this.STACK[2] || null;
-
+        const operator_label = this.STACK[1].label;
+        
         switch (this.state.parameter.type) {
             case "date":
                 let date = locateStringToDate(value);
@@ -502,7 +497,7 @@ const APP = {
                     date.setHours(0, 0, 0, 0);
                     date_offset.setHours(0, 0, 0, 0);
                 }
-                switch (this.STACK[1].label) {
+                switch (operator_label) {
                     case "==": return date.getTime() === date_offset.getTime();
                     case "!=": return date.getTime() !== date_offset.getTime();
                     case "IS NOT NULL": return date != null;
@@ -513,23 +508,24 @@ const APP = {
                 }
                 break;
             case "list":
-                switch (this.STACK[1].label) {
+                switch (operator_label) {
                     case "IS NOT NULL": return value != null;
-                    case "==": return value == value_data.label;
-                    case "!=": return value != value_data.label;
+                    case "==": return value === value_data.label;
+                    case "!=": return value !== value_data.label;
                 }
                 break;
             case "number":
-                if (this.state.operands === 2) {
-                    return value >= this.STACK[2].value[0] && value <= this.STACK[2].value[1];
-                }
-                switch (this.STACK[1].label) {
-                    case "==": return value === this.STACK[2].value[0];
-                    case "!=": return value !== this.STACK[2].value[0];
-                    case "<": return value < this.STACK[2].value[0];
-                    case ">": return value > this.STACK[2].value[0];
-                    case "<=": return value <= this.STACK[2].value[0];
-                    case ">=": return value >= this.STACK[2].value[0];
+                const set_value1 = this.STACK[2].value[0];
+                const set_value2 = this.STACK[2].value[1];
+                if (this.state.operands === 2) return value >= set_value1 && value <= set_value2;
+
+                switch (operator_label) {
+                    case "==": return value === set_value1;
+                    case "!=": return value !== set_value1;
+                    case "<": return value < set_value1;
+                    case ">": return value > set_value1;
+                    case "<=": return value <= set_value1;
+                    case ">=": return value >= set_value1;
                 }
                 break;
             default: throw new Error('wrong data type');
