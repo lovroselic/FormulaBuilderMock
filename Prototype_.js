@@ -112,6 +112,13 @@ Date.prototype.addMonths = function (months) {
 Date.prototype.addYears = function (years) {
   this.setFullYear(this.getFullYear() + years);
 };
+Date.prototype.stringify = function () {
+  const d = String(this.getDate()).padStart(2, '0');
+  const m = String(this.getMonth() + 1).padStart(2, '0');
+  const y = this.getFullYear();
+  return `${d}/${m}/${y}`;
+};
+
 
 // Converts from degrees to radians.
 Math.radians = function (degrees) {

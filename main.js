@@ -15,7 +15,7 @@ function getSignChar(number) {
     if (number >= 0) return "+";
     return "";
 }
-function locateStringToDate(str) {
+function localeStringToDate(str) {
     const [year, month, day] = str.split("/").reverse();
     return new Date(year, month - 1, day);
 }
@@ -139,7 +139,7 @@ const APP = {
         batches: 3,
         fractions: 3
     },
-    version: "0.7 (POC)",
+    version: "0.8 (POC)",
     parameter_selection: null,
     option_labels: null,
     STACK: null,
@@ -472,8 +472,8 @@ const APP = {
                     const row = [
                         p.name,
                         b.id, b.fields.status.data,
-                        b.fields.production_date.data.toLocaleDateString(),
-                        b.fields.expiration_date.data.toLocaleDateString(),
+                        b.fields.production_date.data.stringify(),
+                        b.fields.expiration_date.data.stringify(),
                         b.parameters.assay.data, b.parameters.category.data,
                         f.id, f.fields.status.data
                     ];
@@ -490,7 +490,7 @@ const APP = {
         
         switch (this.state.parameter.type) {
             case "date":
-                let date = locateStringToDate(value);
+                let date = localeStringToDate(value);
                 let date_offset = new Date();
                 if (this.state.operands > 0) {
                     date_offset[`add${value_data.offset_unit}`](value_data.value);
